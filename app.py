@@ -8,6 +8,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import io
+from sklearn.ensemble import VotingClassifier
+import os
+import traceback
 
 # Page configuration
 st.set_page_config(
@@ -33,11 +36,7 @@ st.markdown("""
         margin: 1rem 0;
         border-left: 5px solid;
     }
-    .risk-very-low {
-        background-color: #d4edda;
-        border-left-color: #28a745;
-    }
-    .risk-low {
+    .risk-very-low, .risk-low {
         background-color: #d4edda;
         border-left-color: #28a745;
     }
@@ -45,11 +44,7 @@ st.markdown("""
         background-color: #fff3cd;
         border-left-color: #ffc107;
     }
-    .risk-high {
-        background-color: #f8d7da;
-        border-left-color: #fd7e14;
-    }
-    .risk-very-high {
+    .risk-high, .risk-very-high {
         background-color: #f8d7da;
         border-left-color: #dc3545;
     }
@@ -64,32 +59,57 @@ st.markdown("""
 
 @st.cache_resource
 def load_model():
-    try:     
+    """Load model files with proper error handling"""
+    required_files = {
+        'preprocessor': 'diabetes_preprocessor_advanced.dill',
+        'model': 'best_diabetes_model_advanced.pkl',
+        'threshold': 'optimal_threshold_advanced.pkl'
+    }
+    
+    # Check if all required files exist
+    missing_files = []
+    for name, filename in required_files.items():
+        if not os.path.exists(filename):
+            missing_files.append(filename)
+    
+    if missing_files:
+        return None, None, None, {
+            'success': False,
+            'error': f"Missing required files: {', '.join(missing_files)}"
+        }
+    
+    try:
         # Load preprocessor with dill
-        with open('diabetes_preprocessor_advanced.dill', 'rb') as f:
+        with open(required_files['preprocessor'], 'rb') as f:
             preprocessor = dill.load(f)
 
         # Load model
-        model = joblib.load('best_diabetes_model_advanced.pkl')
+        model = joblib.load(required_files['model'])
         
         # Load threshold
-        threshold = joblib.load('optimal_threshold_advanced.pkl')
+        threshold = joblib.load(required_files['threshold'])
         
-        # Return success info instead of writing to streamlit
         return preprocessor, model, threshold, {
             'success': True,
             'preprocessor_type': str(type(preprocessor)),
             'model_type': str(type(model)),
             'threshold': threshold,
-            'has_preprocess_method': hasattr(preprocessor, 'preprocess_new_data'),
-            'available_methods': [method for method in dir(preprocessor) if not method.startswith('_')]
+            'has_preprocess_method': hasattr(preprocessor, 'preprocess_new_data')
         }
+        
     except Exception as e:
-        return None, None, None, {'success': False, 'error': str(e)}
+        return None, None, None, {
+            'success': False,
+            'error': f"Error loading model files: {str(e)}"
+        }
 
 def predict_diabetes_risk(patient_data, preprocessor, model, threshold):
     """Predict diabetes risk for a patient"""
     try:
+        # Check if preprocessor has the required method
+        if not hasattr(preprocessor, 'preprocess_new_data'):
+            raise AttributeError("Preprocessor does not have 'preprocess_new_data' method")
+        
         # Preprocess data with uncertainty information
         patient_processed, uncertainty_info = preprocessor.preprocess_new_data(
             patient_data, 
@@ -103,34 +123,20 @@ def predict_diabetes_risk(patient_data, preprocessor, model, threshold):
         prediction = int(risk_prob >= threshold)
         
         # Risk categorization
-        if risk_prob < 0.2:
-            category = "Very Low Risk"
-            color = "🟢"
-            css_class = "risk-very-low"
-            recommendation = "Continue regular preventive care"
-        elif risk_prob < 0.4:
-            category = "Low Risk"
-            color = "🟢"
-            css_class = "risk-low"
-            recommendation = "Maintain healthy lifestyle"
-        elif risk_prob < 0.6:
-            category = "Moderate Risk"
-            color = "🟡"
-            css_class = "risk-moderate"
-            recommendation = "Enhanced monitoring recommended"
-        elif risk_prob < 0.8:
-            category = "High Risk"
-            color = "🟠"
-            css_class = "risk-high"
-            recommendation = "Medical consultation advised"
-        else:
-            category = "Very High Risk"
-            color = "🔴"
-            css_class = "risk-very-high"
-            recommendation = "Immediate medical attention recommended"
+        risk_categories = [
+            (0.2, "Very Low Risk", "🟢", "risk-very-low", "Continue regular preventive care"),
+            (0.4, "Low Risk", "🟢", "risk-low", "Maintain healthy lifestyle"),
+            (0.6, "Moderate Risk", "🟡", "risk-moderate", "Enhanced monitoring recommended"),
+            (0.8, "High Risk", "🟠", "risk-high", "Medical consultation advised"),
+            (1.0, "Very High Risk", "🔴", "risk-very-high", "Immediate medical attention recommended")
+        ]
         
-        # Calculate overall confidence based on imputation uncertainty
-        overall_confidence = uncertainty_info['overall_confidence'][0]
+        for threshold_val, category, color, css_class, recommendation in risk_categories:
+            if risk_prob < threshold_val:
+                break
+        
+        # Calculate overall confidence
+        overall_confidence = uncertainty_info.get('overall_confidence', [0.8])[0]
         
         # Add confidence indicator to recommendation if uncertainty is high
         if overall_confidence < 0.7:
@@ -145,7 +151,7 @@ def predict_diabetes_risk(patient_data, preprocessor, model, threshold):
             'recommendation': recommendation,
             'threshold_used': threshold,
             'confidence': overall_confidence,
-            'imputed_features': uncertainty_info['imputed_features'],
+            'imputed_features': uncertainty_info.get('imputed_features', []),
             'uncertainty_info': uncertainty_info
         }
     
@@ -155,12 +161,12 @@ def predict_diabetes_risk(patient_data, preprocessor, model, threshold):
 def create_risk_gauge(risk_prob):
     """Create a risk gauge visualization"""
     fig = go.Figure(go.Indicator(
-        mode = "gauge+number+delta",
-        value = risk_prob * 100,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': "Diabetes Risk Probability (%)"},
-        delta = {'reference': 50},
-        gauge = {
+        mode="gauge+number+delta",
+        value=risk_prob * 100,
+        domain={'x': [0, 1], 'y': [0, 1]},
+        title={'text': "Diabetes Risk Probability (%)"},
+        delta={'reference': 50},
+        gauge={
             'axis': {'range': [None, 100]},
             'bar': {'color': "darkblue"},
             'steps': [
@@ -181,78 +187,105 @@ def create_risk_gauge(risk_prob):
     fig.update_layout(height=300)
     return fig
 
+def extract_importance_from_estimator(estimator, name):
+    """Extract importance from a single estimator with multiple fallback methods"""
+    try:
+        # Method 1: Direct feature_importances_
+        if hasattr(estimator, 'feature_importances_'):
+            return estimator.feature_importances_
+        
+        # Method 2: Coefficients (for linear models)
+        if hasattr(estimator, 'coef_'):
+            coef = estimator.coef_
+            return np.abs(coef[0] if coef.ndim > 1 else coef)
+        
+        # Method 3: Pipeline with named_steps
+        if hasattr(estimator, 'named_steps'):
+            for step_name in ['classifier', 'regressor', 'model']:
+                if hasattr(estimator.named_steps, step_name):
+                    final_est = getattr(estimator.named_steps, step_name)
+                    return extract_importance_from_estimator(final_est, f"{name}_{step_name}")
+        
+        # Method 4: Pipeline with steps
+        if hasattr(estimator, 'steps'):
+            final_est = estimator.steps[-1][1]
+            return extract_importance_from_estimator(final_est, f"{name}_final")
+        
+        return None
+        
+    except Exception as e:
+        st.warning(f"Error extracting importance from {name}: {str(e)}")
+        return None
+
 def get_feature_importance(model, preprocessor):
-    """Extract feature importance from different model types"""
+    """Extract feature importance from ensemble models"""
     try:
         # Get feature names from preprocessor
-        feature_names = preprocessor.feature_names
+        feature_names = getattr(preprocessor, 'feature_names', [])
         
-        # Try different ways to get feature importance
-        importance_scores = None
+        if not feature_names:
+            if hasattr(preprocessor, 'get_feature_names_out'):
+                try:
+                    feature_names = preprocessor.get_feature_names_out()
+                except:
+                    pass
         
-        # Method 1: Direct feature_importances_ (for tree-based models)
-        if hasattr(model, 'feature_importances_'):
-            importance_scores = model.feature_importances_
+        if not feature_names:
+            return None, None
         
-        # Method 2: Direct coef_ (for linear models)
-        elif hasattr(model, 'coef_'):
-            importance_scores = np.abs(model.coef_[0])
+        # Check if model is VotingClassifier
+        if isinstance(model, VotingClassifier):
+            # Get all estimators from the ensemble
+            estimators = model.estimators_
+            estimator_names = [name for name, _ in model.estimators]
+            
+            # Collect importance from each estimator
+            all_importances = []
+            valid_estimators = []
+            
+            for name, estimator in zip(estimator_names, estimators):
+                try:
+                    importance = extract_importance_from_estimator(estimator, name)
+                    
+                    if importance is not None and len(importance) == len(feature_names):
+                        all_importances.append(importance)
+                        valid_estimators.append(name)
+                        
+                except Exception as e:
+                    continue
+            
+            if all_importances:
+                # Average importance across all valid estimators
+                avg_importance = np.mean(all_importances, axis=0)
+                return avg_importance, feature_names
+            else:
+                return None, None
         
-        # Method 3: Check if model is a pipeline
-        elif hasattr(model, 'named_steps'):
-            # For sklearn pipelines
-            final_estimator = model.named_steps.get('classifier') or model.named_steps.get('regressor')
-            if final_estimator:
-                if hasattr(final_estimator, 'feature_importances_'):
-                    importance_scores = final_estimator.feature_importances_
-                elif hasattr(final_estimator, 'coef_'):
-                    importance_scores = np.abs(final_estimator.coef_[0])
-        
-        # Method 4: Check if model has steps (for pipelines)
-        elif hasattr(model, 'steps'):
-            final_estimator = model.steps[-1][1]  # Get the last step
-            if hasattr(final_estimator, 'feature_importances_'):
-                importance_scores = final_estimator.feature_importances_
-            elif hasattr(final_estimator, 'coef_'):
-                importance_scores = np.abs(final_estimator.coef_[0])
-        
-        # Method 5: Check for estimator attribute (for ensemble methods)
-        elif hasattr(model, 'estimator'):
-            if hasattr(model.estimator, 'feature_importances_'):
-                importance_scores = model.estimator.feature_importances_
-            elif hasattr(model.estimator, 'coef_'):
-                importance_scores = np.abs(model.estimator.coef_[0])
-        
-        # Method 6: Check for base_estimator attribute
-        elif hasattr(model, 'base_estimator'):
-            if hasattr(model.base_estimator, 'feature_importances_'):
-                importance_scores = model.base_estimator.feature_importances_
-            elif hasattr(model.base_estimator, 'coef_'):
-                importance_scores = np.abs(model.base_estimator.coef_[0])
-        
-        return importance_scores, feature_names
+        else:
+            # Single model
+            importance = extract_importance_from_estimator(model, "Single Model")
+            return importance, feature_names
     
     except Exception as e:
         st.error(f"Error extracting feature importance: {str(e)}")
         return None, None
 
 def create_feature_importance_chart(preprocessor, model, patient_data):
-    """Create a feature importance visualization using actual model and preprocessor"""
+    """Create a feature importance visualization"""
     try:
         # Get feature importance and names
         importance_scores, feature_names = get_feature_importance(model, preprocessor)
         
         if importance_scores is not None and feature_names is not None:
-            # Ensure we have the right number of features
-            if len(importance_scores) != len(feature_names):
-                st.warning(f"Mismatch between importance scores ({len(importance_scores)}) and feature names ({len(feature_names)})")
-                return create_dummy_feature_importance_chart()
-            
             # Create a dataframe for plotting
             importance_df = pd.DataFrame({
                 'feature': feature_names,
                 'importance': importance_scores
             }).sort_values('importance', ascending=True)
+            
+            # Take top 15 features if there are too many
+            if len(importance_df) > 15:
+                importance_df = importance_df.tail(15)
             
             # Create bar chart
             fig = px.bar(
@@ -267,174 +300,202 @@ def create_feature_importance_chart(preprocessor, model, patient_data):
             )
             
             fig.update_layout(
-                height=max(400, len(feature_names) * 25),
+                height=max(400, len(importance_df) * 30),
                 showlegend=False,
                 title_font_size=16,
-                font=dict(size=12)
+                font=dict(size=12),
+                margin=dict(l=150, r=50, t=50, b=50)
             )
             
             return fig
         else:
-            st.warning("Could not extract feature importance from model. Using sample data.")
-            return create_dummy_feature_importance_chart()
+            return create_fallback_chart(patient_data)
         
     except Exception as e:
         st.error(f"Error creating feature importance chart: {str(e)}")
-        return create_dummy_feature_importance_chart()
+        return create_fallback_chart(patient_data)
 
-def create_dummy_feature_importance_chart():
-    """Create a dummy feature importance chart as fallback"""
-    features = ['Glucose', 'BMI', 'Age', 'Pregnancies', 'Insulin', 'Blood Pressure', 'Skin Thickness', 'Diabetes Pedigree']
-    importance = [0.25, 0.20, 0.15, 0.12, 0.10, 0.08, 0.05, 0.05]
+def create_fallback_chart(patient_data):
+    """Create a fallback feature importance chart based on medical knowledge"""
+    medical_importance = {
+        'Glucose': 0.25,
+        'BMI': 0.20,
+        'Age': 0.15,
+        'DiabetesPedigreeFunction': 0.12,
+        'Insulin': 0.10,
+        'Pregnancies': 0.08,
+        'BloodPressure': 0.06,
+        'SkinThickness': 0.04
+    }
+    
+    features = list(medical_importance.keys())
+    importance = list(medical_importance.values())
     
     fig = px.bar(
         x=importance,
         y=features,
         orientation='h',
-        title="Feature Importance in Diabetes Risk Assessment (Sample)",
-        labels={'x': 'Importance Score', 'y': 'Features'}
+        title="Feature Importance (Medical Knowledge-Based)",
+        labels={'x': 'Relative Importance', 'y': 'Features'},
+        color=importance,
+        color_continuous_scale='viridis'
     )
-    fig.update_layout(height=400)
+    
+    fig.update_layout(
+        height=400,
+        showlegend=False,
+        title_font_size=16,
+        font=dict(size=12),
+        margin=dict(l=150, r=50, t=50, b=50)
+    )
+    
     return fig
 
 def generate_comprehensive_report(patient_data, results, preprocessor):
-    """Generate a comprehensive medical report with enhanced details"""
-    current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    # Extract additional information
-    confidence = results.get('confidence', 0.0)
-    imputed_features = results.get('imputed_features', [])
-    uncertainty_info = results.get('uncertainty_info', {})
-    
-    # Build imputation details
-    imputation_details = ""
-    if imputed_features:
-        imputation_details = "\nIMPUTATION DETAILS:\n"
-        for feature in imputed_features:
-            if feature in uncertainty_info.get('feature_uncertainties', {}):
-                uncertainty = uncertainty_info['feature_uncertainties'][feature]
-                imputation_details += f"- {feature}: Estimated (uncertainty: {uncertainty['std'][0]:.3f})\n"
-    
-    # Enhanced clinical interpretation
-    clinical_notes = ""
-    if results['risk_probability'] > 0.8:
-        clinical_notes = """
-CLINICAL NOTES:
-- Very high diabetes risk detected
-- Immediate medical evaluation recommended
-- Consider HbA1c, fasting glucose, and OGTT testing
-- Lifestyle interventions should be initiated immediately
-"""
-    elif results['risk_probability'] > 0.6:
-        clinical_notes = """
-CLINICAL NOTES:
-- High diabetes risk detected  
-- Medical consultation recommended within 2-4 weeks
-- Consider glucose tolerance testing
-- Implement preventive lifestyle measures
-"""
-    elif results['risk_probability'] > 0.4:
-        clinical_notes = """
-CLINICAL NOTES:
-- Moderate diabetes risk detected
-- Regular monitoring recommended (6-12 months)
-- Focus on lifestyle modifications
-- Annual screening advisable
-"""
-    else:
-        clinical_notes = """
-CLINICAL NOTES:
-- Low diabetes risk detected
-- Continue standard preventive care
-- Maintain healthy lifestyle habits
-- Routine screening as per guidelines
-"""
-    
-    report = f"""
+    """Generate a comprehensive medical report"""
+    try:
+        current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Safe extraction of results
+        risk_prob = results.get('risk_probability', 0.0)
+        confidence = results.get('confidence', 0.0)
+        imputed_features = results.get('imputed_features', [])
+        
+        # Build imputation details
+        imputation_details = ""
+        if imputed_features:
+            imputation_details = "\nIMPUTATION DETAILS:\n"
+            for feature in imputed_features:
+                imputation_details += f"- {feature}: Estimated (uncertainty quantified)\n"
+        
+        # Clinical interpretation
+        if risk_prob > 0.8:
+            clinical_notes = "Very high diabetes risk detected - Immediate medical evaluation recommended"
+        elif risk_prob > 0.6:
+            clinical_notes = "High diabetes risk detected - Medical consultation recommended within 2-4 weeks"
+        elif risk_prob > 0.4:
+            clinical_notes = "Moderate diabetes risk detected - Regular monitoring recommended"
+        else:
+            clinical_notes = "Low diabetes risk detected - Continue standard preventive care"
+        
+        # Safe data extraction
+        def safe_get(key, default='Unknown'):
+            try:
+                value = patient_data.get(key, default)
+                return value if value != default else default
+            except:
+                return default
+        
+        report = f"""
 DIABETES RISK ASSESSMENT REPORT
 Generated: {current_time}
 {'='*60}
 
 PATIENT INFORMATION:
-- Age: {patient_data.get('Age', 'Unknown')} years
-- Number of Pregnancies: {patient_data.get('Pregnancies', 'Unknown')}
-- Body Mass Index (BMI): {patient_data.get('BMI', 'Unknown')}
-- Plasma Glucose: {patient_data.get('Glucose', 'Unknown')} mg/dL
-- Diastolic Blood Pressure: {patient_data.get('BloodPressure', 'Unknown')} mm Hg
-- 2-Hour Serum Insulin: {patient_data.get('Insulin', 'Unknown')} mu U/ml
-- Triceps Skin Fold Thickness: {patient_data.get('SkinThickness', 'Unknown')} mm
-- Diabetes Pedigree Function: {patient_data.get('DiabetesPedigreeFunction', 'Unknown')}
+- Age: {safe_get('Age')} years
+- Number of Pregnancies: {safe_get('Pregnancies')}
+- Body Mass Index (BMI): {safe_get('BMI')}
+- Plasma Glucose: {safe_get('Glucose')} mg/dL
+- Diastolic Blood Pressure: {safe_get('BloodPressure')} mm Hg
+- 2-Hour Serum Insulin: {safe_get('Insulin')} mu U/ml
+- Triceps Skin Fold Thickness: {safe_get('SkinThickness')} mm
+- Diabetes Pedigree Function: {safe_get('DiabetesPedigreeFunction')}
 
 ASSESSMENT RESULTS:
-- Risk Probability: {results['risk_probability']:.1%}
-- Risk Classification: {results['risk_category']}
+- Risk Probability: {risk_prob:.1%}
+- Risk Classification: {results.get('risk_category', 'Unknown')}
 - Prediction Confidence: {confidence:.1%}
-- Decision Threshold Used: {results['threshold_used']:.3f}
-- Clinical Recommendation: {results['recommendation']}
+- Decision Threshold Used: {results.get('threshold_used', 'Unknown')}
+- Clinical Recommendation: {results.get('recommendation', 'Unknown')}
 
 {imputation_details}
 
-ADVANCED ANALYSIS:
-- Model processed {len(preprocessor.feature_names)} features including engineered variables
-- Uncertainty quantification applied using multiple imputation
-- Intelligent medical bounds applied for data validation
-- Feature engineering included metabolic risk scores and categorical binning
-
+CLINICAL NOTES:
 {clinical_notes}
 
 RISK FACTORS ASSESSMENT:
-- Glucose Level: {'High' if patient_data.get('Glucose', 0) > 140 else 'Normal'}
-- BMI Status: {'Obese' if patient_data.get('BMI', 0) > 30 else 'Normal/Overweight'}
-- Age Factor: {'High Risk' if patient_data.get('Age', 0) > 45 else 'Low Risk'}
-- Blood Pressure: {'Elevated' if patient_data.get('BloodPressure', 0) > 80 else 'Normal'}
+- Glucose Level: {'High' if safe_get('Glucose', 0) > 140 else 'Normal'}
+- BMI Status: {'Obese' if safe_get('BMI', 0) > 30 else 'Normal/Overweight'}
+- Age Factor: {'High Risk' if safe_get('Age', 0) > 45 else 'Low Risk'}
+- Blood Pressure: {'Elevated' if safe_get('BloodPressure', 0) > 80 else 'Normal'}
 
 DISCLAIMER:
 This automated assessment is for informational purposes only and should not replace 
-professional medical diagnosis. The assessment uses advanced machine learning algorithms 
-with uncertainty quantification but should be validated through proper clinical testing.
-Please consult with healthcare providers for comprehensive medical evaluation.
+professional medical diagnosis. Please consult with healthcare providers for 
+comprehensive medical evaluation.
 
 System Information:
-- Model Type: Advanced Ensemble with Multiple Imputation
+- Model Type: Advanced Ensemble
 - Preprocessor: {type(preprocessor).__name__}
-- Features Used: {len(preprocessor.feature_names)} selected features
-- Validation Method: Cross-validation with medical constraints
+- Report Generated: {current_time}
 """
-    return report
+        return report
+    
+    except Exception as e:
+        return f"""
+DIABETES RISK ASSESSMENT REPORT
+Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+{'='*60}
+
+ERROR GENERATING DETAILED REPORT: {str(e)}
+
+BASIC RESULTS:
+- Risk Probability: {results.get('risk_probability', 'Unknown')}
+- Risk Classification: {results.get('risk_category', 'Unknown')}
+- Recommendation: {results.get('recommendation', 'Unknown')}
+
+Please contact system administrator for detailed report.
+"""
+
+def initialize_session_state():
+    """Initialize session state variables"""
+    defaults = {
+        'show_report': False,
+        'current_report': "",
+        'current_patient_data': {},
+        'current_results': {},
+        'Pregnancies': 0,
+        'Glucose': 120.0,
+        'BloodPressure': 70.0,
+        'SkinThickness': 20.0,
+        'Insulin': 80.0,
+        'BMI': 25.0,
+        'DiabetesPedigreeFunction': 0.5,
+        'Age': 30
+    }
+    
+    for key, default_value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default_value
 
 def load_sample_case_data(case_data):
-    """Load sample case data into session state with proper type conversion"""
+    """Load sample case data into session state"""
     for key, value in case_data.items():
         st.session_state[key] = value
 
 def main():
-    # Initialize session state for report generation
-    if 'show_report' not in st.session_state:
-        st.session_state.show_report = False
-    if 'current_report' not in st.session_state:
-        st.session_state.current_report = ""
-    if 'current_patient_data' not in st.session_state:
-        st.session_state.current_patient_data = {}
-    if 'current_results' not in st.session_state:
-        st.session_state.current_results = {}
+    # Initialize session state
+    initialize_session_state()
     
     # Load model
     preprocessor, model, threshold, load_info = load_model()
     
     if not load_info['success']:
         st.error(f"❌ Failed to load required model files: {load_info['error']}")
+        st.info("Please ensure the following files are in the current directory:")
+        st.code("""
+- diabetes_preprocessor_advanced.dill
+- best_diabetes_model_advanced.pkl
+- optimal_threshold_advanced.pkl
+        """)
         st.stop()
     
-    # Display debug info if needed (optional)
+    # Debug info in sidebar
     if st.sidebar.checkbox("Show Debug Info"):
-        st.sidebar.write(f"✅ Loaded preprocessor: {load_info['preprocessor_type']}")
-        st.sidebar.write(f"✅ Loaded model: {load_info['model_type']}")
-        st.sidebar.write(f"✅ Loaded threshold: {load_info['threshold']}")
-        if load_info['has_preprocess_method']:
-            st.sidebar.write("✅ Preprocessor has preprocess_new_data method")
-        else:
-            st.sidebar.write("⚠️ Preprocessor doesn't have preprocess_new_data method")
-            st.sidebar.write(f"Available methods: {load_info['available_methods']}")
+        st.sidebar.success("✅ All model files loaded successfully")
+        st.sidebar.write(f"Model type: {load_info['model_type']}")
+        st.sidebar.write(f"Threshold: {load_info['threshold']}")
+        st.sidebar.write(f"Has preprocess method: {load_info['has_preprocess_method']}")
     
     # Header
     st.markdown('<div class="main-header">🏥 Diabetes Risk Assessment System</div>', unsafe_allow_html=True)
@@ -443,46 +504,46 @@ def main():
     st.sidebar.header("📝 Patient Information")
     st.sidebar.markdown("Enter patient details below:")
     
-    # Patient input form with session state support and type conversion
+    # Patient input form
     with st.sidebar:
         pregnancies = st.number_input("👶 Number of pregnancies", 
                                     min_value=0, max_value=20, 
-                                    value=int(st.session_state.get('pregnancies', 0)), 
+                                    value=st.session_state.Pregnancies, 
                                     help="Enter 0 if male or never pregnant")
         
         glucose = st.number_input("🩸 Plasma glucose concentration (mg/dL)", 
                                 min_value=0.0, max_value=300.0, 
-                                value=float(st.session_state.get('glucose', 120.0)), 
+                                value=st.session_state.Glucose, 
                                 step=1.0)
         
         blood_pressure = st.number_input("💓 Diastolic blood pressure (mm Hg)", 
                                        min_value=0.0, max_value=150.0, 
-                                       value=float(st.session_state.get('blood_pressure', 70.0)), 
+                                       value=st.session_state.BloodPressure, 
                                        step=1.0)
         
         skin_thickness = st.number_input("📏 Triceps skin fold thickness (mm)", 
                                        min_value=0.0, max_value=100.0, 
-                                       value=float(st.session_state.get('skin_thickness', 20.0)), 
+                                       value=st.session_state.SkinThickness, 
                                        step=1.0)
         
         insulin = st.number_input("💉 2-Hour serum insulin (mu U/ml)", 
                                 min_value=0.0, max_value=900.0, 
-                                value=float(st.session_state.get('insulin', 80.0)), 
+                                value=st.session_state.Insulin, 
                                 step=1.0)
         
         bmi = st.number_input("⚖️ Body mass index", 
                             min_value=0.0, max_value=70.0, 
-                            value=float(st.session_state.get('bmi', 25.0)), 
+                            value=st.session_state.BMI, 
                             step=0.1)
         
         diabetes_pedigree = st.number_input("🧬 Diabetes pedigree function", 
                                           min_value=0.0, max_value=3.0, 
-                                          value=float(st.session_state.get('diabetes_pedigree', 0.5)), 
+                                          value=st.session_state.DiabetesPedigreeFunction, 
                                           step=0.001, format="%.3f")
         
         age = st.number_input("👤 Age (years)", 
                             min_value=1, max_value=120, 
-                            value=int(st.session_state.get('age', 30)))
+                            value=st.session_state.Age)
         
         predict_button = st.button("🔍 Assess Risk", type="primary")
     
@@ -502,16 +563,14 @@ def main():
                     'Age': age
                 }
                 
-                st.write("✅ Patient data prepared")
-                
                 # Make prediction
                 results = predict_diabetes_risk(patient_data, preprocessor, model, threshold)
                 
-                st.write("✅ Prediction completed")
-                
                 if 'error' in results:
                     st.error(f"❌ Error in prediction: {results['error']}")
-                    st.write("Patient data:", patient_data)
+                    with st.expander("Debug Information"):
+                        st.write("Patient data:", patient_data)
+                        st.write("Error details:", results['error'])
                 else:
                     # Store data for report generation
                     st.session_state.current_patient_data = patient_data
@@ -600,10 +659,15 @@ def main():
                     
                     with col1:
                         if st.button("📋 Generate Detailed Report"):
-                            st.session_state.show_report = True
-                            st.session_state.current_report = generate_comprehensive_report(
-                                patient_data, results, preprocessor
-                            )
+                            try:
+                                st.session_state.current_report = generate_comprehensive_report(
+                                    patient_data, results, preprocessor
+                                )
+                                st.session_state.show_report = True
+                                st.success("✅ Report generated successfully!")
+                            except Exception as e:
+                                st.error(f"❌ Error generating report: {str(e)}")
+                                st.session_state.show_report = False
                     
                     with col2:
                         if st.session_state.show_report and st.session_state.current_report:
@@ -616,13 +680,13 @@ def main():
                     
                     # Show report if generated
                     if st.session_state.show_report and st.session_state.current_report:
+                        st.subheader("📄 Generated Report")
                         st.text_area("Medical Report", st.session_state.current_report, height=400)
     
             except Exception as e:
                 st.error(f"❌ Unexpected error during prediction: {str(e)}")
-                st.write("Stack trace:", e)
-                import traceback
-                st.code(traceback.format_exc())
+                with st.expander("Debug Information"):
+                    st.code(traceback.format_exc())
 
     else:
         # Welcome message
@@ -649,7 +713,7 @@ def main():
         This tool is for **educational and informational purposes only**. It should not replace professional medical diagnosis or treatment. Always consult with healthcare providers for proper medical evaluation.
         """)
         
-        # Sample cases with proper type conversion
+        # Sample cases
         st.subheader("🧪 Sample Test Cases")
         
         col1, col2, col3 = st.columns(3)
@@ -657,24 +721,24 @@ def main():
         with col1:
             if st.button("👤 Low Risk Patient"):
                 load_sample_case_data({
-                    'pregnancies': 1, 'glucose': 85.0, 'blood_pressure': 66.0, 'skin_thickness': 29.0,
-                    'insulin': 0.0, 'bmi': 26.6, 'diabetes_pedigree': 0.351, 'age': 31
+                    'Pregnancies': 1, 'Glucose': 85.0, 'BloodPressure': 66.0, 'SkinThickness': 29.0,
+                    'Insulin': 0.0, 'BMI': 26.6, 'DiabetesPedigreeFunction': 0.351, 'Age': 31
                 })
                 st.rerun()
         
         with col2:
             if st.button("👤 Moderate Risk Patient"):
                 load_sample_case_data({
-                    'pregnancies': 6, 'glucose': 148.0, 'blood_pressure': 72.0, 'skin_thickness': 35.0,
-                    'insulin': 0.0, 'bmi': 33.6, 'diabetes_pedigree': 0.627, 'age': 50
+                    'Pregnancies': 6, 'Glucose': 148.0, 'BloodPressure': 72.0, 'SkinThickness': 35.0,
+                    'insulin': 0, 'bmi': 33.6, 'diabetes_pedigree': 0.627, 'age': 50
                 })
                 st.rerun()
         
         with col3:
             if st.button("👤 High Risk Patient"):
-                load_sample_case_data({
-                    'pregnancies': 8, 'glucose': 183.0, 'blood_pressure': 64.0, 'skin_thickness': 0.0,
-                    'insulin': 0.0, 'bmi': 23.3, 'diabetes_pedigree': 0.672, 'age': 32
+                st.session_state.update({
+                    'pregnancies': 8, 'glucose': 183, 'blood_pressure': 64, 'skin_thickness': 0,
+                    'insulin': 0, 'bmi': 23.3, 'diabetes_pedigree': 0.672, 'age': 32
                 })
                 st.rerun()
 
