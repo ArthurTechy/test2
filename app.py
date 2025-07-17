@@ -352,14 +352,22 @@ def create_fallback_chart(patient_data):
     return fig
 
 def generate_comprehensive_report(patient_data, results, preprocessor):
-    """Generate a comprehensive medical report"""
+    """Generate a comprehensive medical report - FIXED VERSION"""
     try:
         current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        # Safe extraction of results
+        # Debug: Check what we have
+        st.write("DEBUG - Generating report with:")
+        st.write(f"Patient data keys: {list(patient_data.keys()) if patient_data else 'None'}")
+        st.write(f"Results keys: {list(results.keys()) if results else 'None'}")
+        
+        # Safe extraction of results with defaults
         risk_prob = results.get('risk_probability', 0.0)
         confidence = results.get('confidence', 0.0)
         imputed_features = results.get('imputed_features', [])
+        risk_category = results.get('risk_category', 'Unknown')
+        recommendation = results.get('recommendation', 'Consult healthcare provider')
+        threshold_used = results.get('threshold_used', 0.5)
         
         # Build imputation details
         imputation_details = ""
@@ -378,16 +386,21 @@ def generate_comprehensive_report(patient_data, results, preprocessor):
         else:
             clinical_notes = "Low diabetes risk detected - Continue standard preventive care"
         
-        # Safe data extraction
-        def safe_get(key, default='Unknown'):
+        # Safe data extraction with better error handling
+        def safe_get(key, default='Not provided'):
             try:
+                if not patient_data:
+                    return default
                 value = patient_data.get(key, default)
-                return value if value != default else default
-            except:
+                if value is None or value == '':
+                    return default
+                return str(value)
+            except Exception as e:
+                st.warning(f"Error accessing {key}: {str(e)}")
                 return default
         
-        report = f"""
-DIABETES RISK ASSESSMENT REPORT
+        # Build the report
+        report = f"""DIABETES RISK ASSESSMENT REPORT
 Generated: {current_time}
 {'='*60}
 
@@ -403,10 +416,10 @@ PATIENT INFORMATION:
 
 ASSESSMENT RESULTS:
 - Risk Probability: {risk_prob:.1%}
-- Risk Classification: {results.get('risk_category', 'Unknown')}
+- Risk Classification: {risk_category}
 - Prediction Confidence: {confidence:.1%}
-- Decision Threshold Used: {results.get('threshold_used', 'Unknown')}
-- Clinical Recommendation: {results.get('recommendation', 'Unknown')}
+- Decision Threshold Used: {threshold_used:.3f}
+- Clinical Recommendation: {recommendation}
 
 {imputation_details}
 
@@ -414,10 +427,10 @@ CLINICAL NOTES:
 {clinical_notes}
 
 RISK FACTORS ASSESSMENT:
-- Glucose Level: {'High' if safe_get('Glucose', 0) > 140 else 'Normal'}
-- BMI Status: {'Obese' if safe_get('BMI', 0) > 30 else 'Normal/Overweight'}
-- Age Factor: {'High Risk' if safe_get('Age', 0) > 45 else 'Low Risk'}
-- Blood Pressure: {'Elevated' if safe_get('BloodPressure', 0) > 80 else 'Normal'}
+- Glucose Level: {'High' if float(safe_get('Glucose', 0)) > 140 else 'Normal'}
+- BMI Status: {'Obese' if float(safe_get('BMI', 0)) > 30 else 'Normal/Overweight'}
+- Age Factor: {'High Risk' if float(safe_get('Age', 0)) > 45 else 'Low Risk'}
+- Blood Pressure: {'Elevated' if float(safe_get('BloodPressure', 0)) > 80 else 'Normal'}
 
 DISCLAIMER:
 This automated assessment is for informational/research purposes and clinical decision support. 
@@ -425,14 +438,21 @@ It is not intended to replace a physician's diagnosis. Follow-up diagnostic test
 
 System Information:
 - Model Type: Advanced Ensemble
-- Preprocessor: {type(preprocessor).__name__}
+- Preprocessor: {type(preprocessor).__name__ if preprocessor else 'Unknown'}
 - Report Generated: {current_time}
 """
+        
+        st.success("✅ Report generated successfully!")
         return report
-    
+        
     except Exception as e:
-        return f"""
-DIABETES RISK ASSESSMENT REPORT
+        error_msg = f"Error in report generation: {str(e)}"
+        st.error(error_msg)
+        st.write("Full error traceback:")
+        st.code(traceback.format_exc())
+        
+        # Return a basic report even if detailed generation fails
+        return f"""DIABETES RISK ASSESSMENT REPORT
 Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 {'='*60}
 
@@ -453,6 +473,7 @@ def initialize_session_state():
         'current_report': "",
         'current_patient_data': {},
         'current_results': {},
+        'prediction_made': False,  # Add flag to track if prediction was made
         'Pregnancies': 0,
         'Glucose': 120.0,
         'BloodPressure': 70.0,
@@ -495,6 +516,9 @@ def main():
         st.sidebar.write(f"Model type: {load_info['model_type']}")
         st.sidebar.write(f"Threshold: {load_info['threshold']}")
         st.sidebar.write(f"Has preprocess method: {load_info['has_preprocess_method']}")
+        st.sidebar.write(f"Prediction made: {st.session_state.prediction_made}")
+        st.sidebar.write(f"Current patient data: {bool(st.session_state.current_patient_data)}")
+        st.sidebar.write(f"Current results: {bool(st.session_state.current_results)}")
     
     # Header
     st.markdown('<div class="main-header">🏥 Diabetes Risk Assessment System</div>', unsafe_allow_html=True)
@@ -574,6 +598,8 @@ def main():
                     # Store data for report generation
                     st.session_state.current_patient_data = patient_data
                     st.session_state.current_results = results
+                    st.session_state.prediction_made = True
+                    st.session_state.show_report = False  # Reset report flag
                     
                     st.success("✅ Risk assessment completed successfully!")
                     
@@ -651,45 +677,50 @@ def main():
                         st.metric("Skin Thickness", f"{skin_thickness} mm")
                         st.metric("Diabetes Pedigree", f"{diabetes_pedigree:.3f}")
                     
-                    # Generate and download report section
-                    st.subheader("📄 Generate Report")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if st.button("📋 Generate Detailed Report"):
-                            try:
-                                st.session_state.current_report = generate_comprehensive_report(
-                                    patient_data, results, preprocessor
-                                )
-                                st.session_state.show_report = True
-                                st.success("✅ Report generated successfully!")
-                                st.experimental_rerun()
-                            except Exception as e:
-                                st.error(f"❌ Error generating report: {str(e)}")
-                                st.session_state.show_report = False
-                    
-                    with col2:
-                        if st.session_state.show_report and st.session_state.current_report:
-                            st.download_button(
-                                label="📥 Download Report",
-                                data=st.session_state.current_report,
-                                file_name=f"diabetes_risk_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                                mime="text/plain"
-                            )
-                    
-                    # Show report if generated
-                    if st.session_state.show_report and st.session_state.current_report:
-                        st.subheader("📄 Generated Report")
-                        st.text_area("Medical Report", st.session_state.current_report, height=400)
-    
             except Exception as e:
                 st.error(f"❌ Unexpected error during prediction: {str(e)}")
                 with st.expander("Debug Information"):
                     st.code(traceback.format_exc())
 
-    else:
-        # Welcome message
+    # Report generation section - MOVED OUTSIDE prediction block
+    if st.session_state.prediction_made and st.session_state.current_patient_data and st.session_state.current_results:
+        st.subheader("📄 Generate Report")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("📋 Generate Detailed Report", key="generate_report"):
+                with st.spinner("Generating report..."):
+                    try:
+                        st.session_state.current_report = generate_comprehensive_report(
+                            st.session_state.current_patient_data, 
+                            st.session_state.current_results, 
+                            preprocessor
+                        )
+                        st.session_state.show_report = True
+                        st.success("✅ Report generated successfully!")
+                    except Exception as e:
+                        st.error(f"❌ Error generating report: {str(e)}")
+                        st.session_state.show_report = False
+                        st.code(traceback.format_exc())
+        
+        with col2:
+            if st.session_state.show_report and st.session_state.current_report:
+                st.download_button(
+                    label="📥 Download Report",
+                    data=st.session_state.current_report,
+                    file_name=f"diabetes_risk_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    mime="text/plain",
+                    key="download_report"
+                )
+        
+        # Show report if generated
+        if st.session_state.show_report and st.session_state.current_report:
+            st.subheader("📄 Generated Report")
+            st.text_area("Medical Report", st.session_state.current_report, height=400, key="report_display")
+
+    # Welcome message when no prediction has been made
+    if not st.session_state.prediction_made:
         st.markdown("""
         ## Welcome to the Diabetes Risk Assessment System
         
@@ -712,7 +743,7 @@ def main():
         ### Clinical Disclaimer:
         This automated assessment is for informational/research purposes and clinical decision support. It is not intended to replace a physician's diagnosis. Follow-up diagnostic testing is required.
         """)
-        
+
         # Sample cases
         st.subheader("🧪 Sample Test Cases")
         
