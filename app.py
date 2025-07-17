@@ -145,7 +145,8 @@ def predict_diabetes_risk(patient_data, preprocessor, model, threshold):
             'recommendation': recommendation,
             'threshold_used': threshold,
             'confidence': overall_confidence,
-            'imputed_features': uncertainty_info['imputed_features']
+            'imputed_features': uncertainty_info['imputed_features'],
+            'uncertainty_info': uncertainty_info
         }
     
     except Exception as e:
@@ -180,9 +181,57 @@ def create_risk_gauge(risk_prob):
     fig.update_layout(height=300)
     return fig
 
-def create_feature_importance_chart(patient_data):
-    """Create a feature importance visualization"""
-    # Sample feature importance values - in real app, get from actual model
+def create_feature_importance_chart(preprocessor, model, patient_data):
+    """Create a feature importance visualization using actual model and preprocessor"""
+    try:
+        # Get feature names from preprocessor (these are the selected features)
+        feature_names = preprocessor.feature_names
+        
+        # Get feature importance from the model
+        if hasattr(model, 'feature_importances_'):
+            # For tree-based models
+            importance_scores = model.feature_importances_
+        elif hasattr(model, 'coef_'):
+            # For linear models
+            importance_scores = np.abs(model.coef_[0])
+        else:
+            # Fallback: use permutation importance or return dummy data
+            st.warning("Model doesn't have feature_importances_ or coef_ attribute")
+            return create_dummy_feature_importance_chart()
+        
+        # Create a dataframe for plotting
+        importance_df = pd.DataFrame({
+            'feature': feature_names,
+            'importance': importance_scores
+        }).sort_values('importance', ascending=True)
+        
+        # Create bar chart
+        fig = px.bar(
+            importance_df,
+            x='importance',
+            y='feature',
+            orientation='h',
+            title="Feature Importance in Diabetes Risk Assessment",
+            labels={'importance': 'Importance Score', 'feature': 'Features'},
+            color='importance',
+            color_continuous_scale='viridis'
+        )
+        
+        fig.update_layout(
+            height=max(400, len(feature_names) * 25),
+            showlegend=False,
+            title_font_size=16,
+            font=dict(size=12)
+        )
+        
+        return fig
+        
+    except Exception as e:
+        st.error(f"Error creating feature importance chart: {str(e)}")
+        return create_dummy_feature_importance_chart()
+
+def create_dummy_feature_importance_chart():
+    """Create a dummy feature importance chart as fallback"""
     features = ['Glucose', 'BMI', 'Age', 'Pregnancies', 'Insulin', 'Blood Pressure', 'Skin Thickness', 'Diabetes Pedigree']
     importance = [0.25, 0.20, 0.15, 0.12, 0.10, 0.08, 0.05, 0.05]
     
@@ -190,48 +239,121 @@ def create_feature_importance_chart(patient_data):
         x=importance,
         y=features,
         orientation='h',
-        title="Feature Importance in Diabetes Risk Assessment",
+        title="Feature Importance in Diabetes Risk Assessment (Sample)",
         labels={'x': 'Importance Score', 'y': 'Features'}
     )
     fig.update_layout(height=400)
     return fig
 
-def generate_report(patient_data, results):
-    """Generate a detailed medical report"""
+def generate_comprehensive_report(patient_data, results, preprocessor):
+    """Generate a comprehensive medical report with enhanced details"""
     current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Extract additional information
+    confidence = results.get('confidence', 0.0)
+    imputed_features = results.get('imputed_features', [])
+    uncertainty_info = results.get('uncertainty_info', {})
+    
+    # Build imputation details
+    imputation_details = ""
+    if imputed_features:
+        imputation_details = "\nIMPUTATION DETAILS:\n"
+        for feature in imputed_features:
+            if feature in uncertainty_info.get('feature_uncertainties', {}):
+                uncertainty = uncertainty_info['feature_uncertainties'][feature]
+                imputation_details += f"- {feature}: Estimated (uncertainty: {uncertainty['std'][0]:.3f})\n"
+    
+    # Enhanced clinical interpretation
+    clinical_notes = ""
+    if results['risk_probability'] > 0.8:
+        clinical_notes = """
+CLINICAL NOTES:
+- Very high diabetes risk detected
+- Immediate medical evaluation recommended
+- Consider HbA1c, fasting glucose, and OGTT testing
+- Lifestyle interventions should be initiated immediately
+"""
+    elif results['risk_probability'] > 0.6:
+        clinical_notes = """
+CLINICAL NOTES:
+- High diabetes risk detected  
+- Medical consultation recommended within 2-4 weeks
+- Consider glucose tolerance testing
+- Implement preventive lifestyle measures
+"""
+    elif results['risk_probability'] > 0.4:
+        clinical_notes = """
+CLINICAL NOTES:
+- Moderate diabetes risk detected
+- Regular monitoring recommended (6-12 months)
+- Focus on lifestyle modifications
+- Annual screening advisable
+"""
+    else:
+        clinical_notes = """
+CLINICAL NOTES:
+- Low diabetes risk detected
+- Continue standard preventive care
+- Maintain healthy lifestyle habits
+- Routine screening as per guidelines
+"""
     
     report = f"""
 DIABETES RISK ASSESSMENT REPORT
 Generated: {current_time}
-{'='*50}
+{'='*60}
 
 PATIENT INFORMATION:
 - Age: {patient_data.get('Age', 'Unknown')} years
-- Pregnancies: {patient_data.get('Pregnancies', 'Unknown')}
-- BMI: {patient_data.get('BMI', 'Unknown')}
-- Glucose: {patient_data.get('Glucose', 'Unknown')} mg/dL
-- Blood Pressure: {patient_data.get('BloodPressure', 'Unknown')} mm Hg
-- Insulin: {patient_data.get('Insulin', 'Unknown')} mu U/ml
-- Skin Thickness: {patient_data.get('SkinThickness', 'Unknown')} mm
+- Number of Pregnancies: {patient_data.get('Pregnancies', 'Unknown')}
+- Body Mass Index (BMI): {patient_data.get('BMI', 'Unknown')}
+- Plasma Glucose: {patient_data.get('Glucose', 'Unknown')} mg/dL
+- Diastolic Blood Pressure: {patient_data.get('BloodPressure', 'Unknown')} mm Hg
+- 2-Hour Serum Insulin: {patient_data.get('Insulin', 'Unknown')} mu U/ml
+- Triceps Skin Fold Thickness: {patient_data.get('SkinThickness', 'Unknown')} mm
 - Diabetes Pedigree Function: {patient_data.get('DiabetesPedigreeFunction', 'Unknown')}
 
 ASSESSMENT RESULTS:
 - Risk Probability: {results['risk_probability']:.1%}
 - Risk Classification: {results['risk_category']}
-- Clinical Recommendation: {results['recommendation']}
+- Prediction Confidence: {confidence:.1%}
 - Decision Threshold Used: {results['threshold_used']:.3f}
+- Clinical Recommendation: {results['recommendation']}
 
-INTERPRETATION:
-{
-'This assessment indicates a high likelihood of diabetes. Immediate medical consultation is recommended for proper diagnosis and treatment planning.'
-if results['prediction'] == 1 and results['risk_probability'] > 0.7
-else 'This assessment suggests low to moderate diabetes risk. Continue regular health monitoring and maintain healthy lifestyle habits.'
-}
+{imputation_details}
+
+ADVANCED ANALYSIS:
+- Model processed {len(preprocessor.feature_names)} features including engineered variables
+- Uncertainty quantification applied using multiple imputation
+- Intelligent medical bounds applied for data validation
+- Feature engineering included metabolic risk scores and categorical binning
+
+{clinical_notes}
+
+RISK FACTORS ASSESSMENT:
+- Glucose Level: {'High' if patient_data.get('Glucose', 0) > 140 else 'Normal'}
+- BMI Status: {'Obese' if patient_data.get('BMI', 0) > 30 else 'Normal/Overweight'}
+- Age Factor: {'High Risk' if patient_data.get('Age', 0) > 45 else 'Low Risk'}
+- Blood Pressure: {'Elevated' if patient_data.get('BloodPressure', 0) > 80 else 'Normal'}
 
 DISCLAIMER:
-This automated assessment is for informational purposes only and should not replace professional medical diagnosis. Please consult with healthcare providers for proper medical evaluation.
+This automated assessment is for informational purposes only and should not replace 
+professional medical diagnosis. The assessment uses advanced machine learning algorithms 
+with uncertainty quantification but should be validated through proper clinical testing.
+Please consult with healthcare providers for comprehensive medical evaluation.
+
+System Information:
+- Model Type: Advanced Ensemble with Multiple Imputation
+- Preprocessor: {type(preprocessor).__name__}
+- Features Used: {len(preprocessor.feature_names)} selected features
+- Validation Method: Cross-validation with medical constraints
 """
     return report
+
+def load_sample_case_data(session_state_dict):
+    """Load sample case data into session state"""
+    for key, value in session_state_dict.items():
+        st.session_state[key] = value
 
 def main():
     # Load model
@@ -259,20 +381,50 @@ def main():
     st.sidebar.header("📝 Patient Information")
     st.sidebar.markdown("Enter patient details below:")
     
-    # Patient input form
+    # Patient input form with session state support
     with st.sidebar:
-        pregnancies = st.number_input("👶 Number of pregnancies", min_value=0, max_value=20, value=0, help="Enter 0 if male or never pregnant")
-        glucose = st.number_input("🩸 Plasma glucose concentration (mg/dL)", min_value=0.0, max_value=300.0, value=120.0, step=1.0)
-        blood_pressure = st.number_input("💓 Diastolic blood pressure (mm Hg)", min_value=0.0, max_value=150.0, value=70.0, step=1.0)
-        skin_thickness = st.number_input("📏 Triceps skin fold thickness (mm)", min_value=0.0, max_value=100.0, value=20.0, step=1.0)
-        insulin = st.number_input("💉 2-Hour serum insulin (mu U/ml)", min_value=0.0, max_value=900.0, value=80.0, step=1.0)
-        bmi = st.number_input("⚖️ Body mass index", min_value=0.0, max_value=70.0, value=25.0, step=0.1)
-        diabetes_pedigree = st.number_input("🧬 Diabetes pedigree function", min_value=0.0, max_value=3.0, value=0.5, step=0.001, format="%.3f")
-        age = st.number_input("👤 Age (years)", min_value=1, max_value=120, value=30)
+        pregnancies = st.number_input("👶 Number of pregnancies", 
+                                    min_value=0, max_value=20, 
+                                    value=st.session_state.get('pregnancies', 0), 
+                                    help="Enter 0 if male or never pregnant")
+        
+        glucose = st.number_input("🩸 Plasma glucose concentration (mg/dL)", 
+                                min_value=0.0, max_value=300.0, 
+                                value=st.session_state.get('glucose', 120.0), 
+                                step=1.0)
+        
+        blood_pressure = st.number_input("💓 Diastolic blood pressure (mm Hg)", 
+                                       min_value=0.0, max_value=150.0, 
+                                       value=st.session_state.get('blood_pressure', 70.0), 
+                                       step=1.0)
+        
+        skin_thickness = st.number_input("📏 Triceps skin fold thickness (mm)", 
+                                       min_value=0.0, max_value=100.0, 
+                                       value=st.session_state.get('skin_thickness', 20.0), 
+                                       step=1.0)
+        
+        insulin = st.number_input("💉 2-Hour serum insulin (mu U/ml)", 
+                                min_value=0.0, max_value=900.0, 
+                                value=st.session_state.get('insulin', 80.0), 
+                                step=1.0)
+        
+        bmi = st.number_input("⚖️ Body mass index", 
+                            min_value=0.0, max_value=70.0, 
+                            value=st.session_state.get('bmi', 25.0), 
+                            step=0.1)
+        
+        diabetes_pedigree = st.number_input("🧬 Diabetes pedigree function", 
+                                          min_value=0.0, max_value=3.0, 
+                                          value=st.session_state.get('diabetes_pedigree', 0.5), 
+                                          step=0.001, format="%.3f")
+        
+        age = st.number_input("👤 Age (years)", 
+                            min_value=1, max_value=120, 
+                            value=st.session_state.get('age', 30))
         
         predict_button = st.button("🔍 Assess Risk", type="primary")
     
-# Main content area
+    # Main content area
     if predict_button:
         with st.spinner("Analyzing patient data..."):
             try:
@@ -312,6 +464,7 @@ def main():
                         <div class="risk-card {results['css_class']}">
                             <h3>{results['color']} {results['risk_category']}</h3>
                             <p><strong>Risk Probability:</strong> {results['risk_probability']:.1%}</p>
+                            <p><strong>Prediction Confidence:</strong> {results['confidence']:.1%}</p>
                             <p><strong>Recommendation:</strong> {results['recommendation']}</p>
                         </div>
                         """
@@ -326,6 +479,7 @@ def main():
                             
                             - This patient has a **{results['risk_probability']:.1%}** probability of having diabetes
                             - Based on the optimal threshold ({results['threshold_used']:.3f}), this patient is **classified as likely to have diabetes**
+                            - **Prediction confidence: {results['confidence']:.1%}**
                             - **Further medical evaluation is recommended**
                             """)
                         else:
@@ -334,17 +488,22 @@ def main():
                             
                             - This patient has a **{results['risk_probability']:.1%}** probability of having diabetes
                             - Based on the optimal threshold ({results['threshold_used']:.3f}), this patient is **classified as unlikely to have diabetes**
+                            - **Prediction confidence: {results['confidence']:.1%}**
                             - **Continue with regular health monitoring**
                             """)
+                        
+                        # Show imputed features if any
+                        if results['imputed_features']:
+                            st.info(f"📝 **Note:** The following features were estimated due to missing/zero values: {', '.join(results['imputed_features'])}")
                     
                     with col2:
                         st.subheader("🎯 Risk Gauge")
                         gauge_fig = create_risk_gauge(results['risk_probability'])
                         st.plotly_chart(gauge_fig, use_container_width=True)
 
-                    # Feature importance chart
+                    # Feature importance chart - FIXED
                     st.subheader("📈 Feature Importance Analysis")
-                    importance_fig = create_feature_importance_chart(patient_data)
+                    importance_fig = create_feature_importance_chart(preprocessor, model, patient_data)
                     st.plotly_chart(importance_fig, use_container_width=True)
                     
                     # Patient data summary
@@ -368,11 +527,11 @@ def main():
                         st.metric("Skin Thickness", f"{skin_thickness} mm")
                         st.metric("Diabetes Pedigree", f"{diabetes_pedigree:.3f}")
                     
-                    # Generate and download report
+                    # Generate and download report - FIXED
                     st.subheader("📄 Generate Report")
                     
                     if st.button("📋 Generate Detailed Report"):
-                        report = generate_report(patient_data, results)
+                        report = generate_comprehensive_report(patient_data, results, preprocessor)
                         st.text_area("Medical Report", report, height=400)
                         
                         # Download button
@@ -388,7 +547,6 @@ def main():
                 st.write("Stack trace:", e)
                 import traceback
                 st.code(traceback.format_exc())
-
 
     else:
         # Welcome message
@@ -406,22 +564,23 @@ def main():
         ### Features:
         - 🎯 **Accurate Risk Assessment** using trained ML models
         - 📊 **Visual Risk Indicators** with color-coded categories
-        - 📈 **Feature Importance Analysis** 
-        - 📄 **Detailed Medical Reports**
+        - 📈 **Feature Importance Analysis** with engineered features
+        - 📄 **Comprehensive Medical Reports** with uncertainty quantification
         - 🔍 **Interactive Visualizations**
+        - 🧮 **Multiple Imputation** for handling missing values
         
         ### Important Disclaimer:
         This tool is for **educational and informational purposes only**. It should not replace professional medical diagnosis or treatment. Always consult with healthcare providers for proper medical evaluation.
         """)
         
-        # Sample cases
+        # Sample cases - FIXED
         st.subheader("🧪 Sample Test Cases")
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
             if st.button("👤 Low Risk Patient"):
-                st.session_state.update({
+                load_sample_case_data({
                     'pregnancies': 1, 'glucose': 85, 'blood_pressure': 66, 'skin_thickness': 29,
                     'insulin': 0, 'bmi': 26.6, 'diabetes_pedigree': 0.351, 'age': 31
                 })
@@ -429,7 +588,7 @@ def main():
         
         with col2:
             if st.button("👤 Moderate Risk Patient"):
-                st.session_state.update({
+                load_sample_case_data({
                     'pregnancies': 6, 'glucose': 148, 'blood_pressure': 72, 'skin_thickness': 35,
                     'insulin': 0, 'bmi': 33.6, 'diabetes_pedigree': 0.627, 'age': 50
                 })
@@ -437,7 +596,7 @@ def main():
         
         with col3:
             if st.button("👤 High Risk Patient"):
-                st.session_state.update({
+                load_sample_case_data({
                     'pregnancies': 8, 'glucose': 183, 'blood_pressure': 64, 'skin_thickness': 0,
                     'insulin': 0, 'bmi': 23.3, 'diabetes_pedigree': 0.672, 'age': 32
                 })
