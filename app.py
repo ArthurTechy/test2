@@ -420,9 +420,8 @@ RISK FACTORS ASSESSMENT:
 - Blood Pressure: {'Elevated' if safe_get('BloodPressure', 0) > 80 else 'Normal'}
 
 DISCLAIMER:
-This automated assessment is for informational purposes only and should not replace 
-professional medical diagnosis. Please consult with healthcare providers for 
-comprehensive medical evaluation.
+This automated assessment is for informational/research purposes and clinical decision support. 
+It is not intended to replace a physician's diagnosis. Follow-up diagnostic testing is required.
 
 System Information:
 - Model Type: Advanced Ensemble
@@ -665,6 +664,7 @@ def main():
                                 )
                                 st.session_state.show_report = True
                                 st.success("✅ Report generated successfully!")
+                                st.experimental_rerun()
                             except Exception as e:
                                 st.error(f"❌ Error generating report: {str(e)}")
                                 st.session_state.show_report = False
@@ -693,7 +693,7 @@ def main():
         st.markdown("""
         ## Welcome to the Diabetes Risk Assessment System
         
-        This advanced system uses machine learning to assess diabetes risk based on key health indicators.
+        This advanced system uses machine learning to assess diabetes risk based on key health and lifestyle indicators.
         
         ### How to use:
         1. **Enter patient information** in the sidebar
@@ -709,8 +709,8 @@ def main():
         - 🔍 **Interactive Visualizations**
         - 🧮 **Multiple Imputation** for handling missing values
         
-        ### Important Disclaimer:
-        This tool is for **educational and informational purposes only**. It should not replace professional medical diagnosis or treatment. Always consult with healthcare providers for proper medical evaluation.
+        ### Clinical Disclaimer:
+        This automated assessment is for informational/research purposes and clinical decision support. It is not intended to replace a physician's diagnosis. Follow-up diagnostic testing is required.
         """)
         
         # Sample cases
