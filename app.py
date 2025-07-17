@@ -721,24 +721,24 @@ def main():
         with col1:
             if st.button("👤 Low Risk Patient"):
                 load_sample_case_data({
-                    'Pregnancies': 1, 'Glucose': 85.0, 'BloodPressure': 66.0, 'SkinThickness': 29.0,
-                    'Insulin': 0.0, 'BMI': 26.6, 'DiabetesPedigreeFunction': 0.351, 'Age': 31
+                    'pregnancies': 1, 'glucose': 85.0, 'blood_pressure': 66.0, 'skin_thickness': 29.0,
+                    'insulin': 0.0, 'bmi': 26.6, 'diabetes_pedigree': 0.351, 'age': 31
                 })
                 st.rerun()
         
         with col2:
             if st.button("👤 Moderate Risk Patient"):
                 load_sample_case_data({
-                    'Pregnancies': 6, 'Glucose': 148.0, 'BloodPressure': 72.0, 'SkinThickness': 35.0,
-                    'insulin': 0, 'bmi': 33.6, 'diabetes_pedigree': 0.627, 'age': 50
+                    'pregnancies': 6, 'glucose': 148.0, 'blood_pressure': 72.0, 'skin_thickness': 35.0,
+                    'insulin': 0.0, 'bmi': 33.6, 'diabetes_pedigree': 0.627, 'age': 50
                 })
                 st.rerun()
         
         with col3:
             if st.button("👤 High Risk Patient"):
-                st.session_state.update({
-                    'pregnancies': 8, 'glucose': 183, 'blood_pressure': 64, 'skin_thickness': 0,
-                    'insulin': 0, 'bmi': 23.3, 'diabetes_pedigree': 0.672, 'age': 32
+                load_sample_case_data({
+                    'pregnancies': 8, 'glucose': 183.0, 'blood_pressure': 64.0, 'skin_thickness': 0.0,
+                    'insulin': 0.0, 'bmi': 23.3, 'diabetes_pedigree': 0.672, 'age': 32
                 })
                 st.rerun()
 
