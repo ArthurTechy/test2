@@ -181,50 +181,102 @@ def create_risk_gauge(risk_prob):
     fig.update_layout(height=300)
     return fig
 
+def get_feature_importance(model, preprocessor):
+    """Extract feature importance from different model types"""
+    try:
+        # Get feature names from preprocessor
+        feature_names = preprocessor.feature_names
+        
+        # Try different ways to get feature importance
+        importance_scores = None
+        
+        # Method 1: Direct feature_importances_ (for tree-based models)
+        if hasattr(model, 'feature_importances_'):
+            importance_scores = model.feature_importances_
+        
+        # Method 2: Direct coef_ (for linear models)
+        elif hasattr(model, 'coef_'):
+            importance_scores = np.abs(model.coef_[0])
+        
+        # Method 3: Check if model is a pipeline
+        elif hasattr(model, 'named_steps'):
+            # For sklearn pipelines
+            final_estimator = model.named_steps.get('classifier') or model.named_steps.get('regressor')
+            if final_estimator:
+                if hasattr(final_estimator, 'feature_importances_'):
+                    importance_scores = final_estimator.feature_importances_
+                elif hasattr(final_estimator, 'coef_'):
+                    importance_scores = np.abs(final_estimator.coef_[0])
+        
+        # Method 4: Check if model has steps (for pipelines)
+        elif hasattr(model, 'steps'):
+            final_estimator = model.steps[-1][1]  # Get the last step
+            if hasattr(final_estimator, 'feature_importances_'):
+                importance_scores = final_estimator.feature_importances_
+            elif hasattr(final_estimator, 'coef_'):
+                importance_scores = np.abs(final_estimator.coef_[0])
+        
+        # Method 5: Check for estimator attribute (for ensemble methods)
+        elif hasattr(model, 'estimator'):
+            if hasattr(model.estimator, 'feature_importances_'):
+                importance_scores = model.estimator.feature_importances_
+            elif hasattr(model.estimator, 'coef_'):
+                importance_scores = np.abs(model.estimator.coef_[0])
+        
+        # Method 6: Check for base_estimator attribute
+        elif hasattr(model, 'base_estimator'):
+            if hasattr(model.base_estimator, 'feature_importances_'):
+                importance_scores = model.base_estimator.feature_importances_
+            elif hasattr(model.base_estimator, 'coef_'):
+                importance_scores = np.abs(model.base_estimator.coef_[0])
+        
+        return importance_scores, feature_names
+    
+    except Exception as e:
+        st.error(f"Error extracting feature importance: {str(e)}")
+        return None, None
+
 def create_feature_importance_chart(preprocessor, model, patient_data):
     """Create a feature importance visualization using actual model and preprocessor"""
     try:
-        # Get feature names from preprocessor (these are the selected features)
-        feature_names = preprocessor.feature_names
+        # Get feature importance and names
+        importance_scores, feature_names = get_feature_importance(model, preprocessor)
         
-        # Get feature importance from the model
-        if hasattr(model, 'feature_importances_'):
-            # For tree-based models
-            importance_scores = model.feature_importances_
-        elif hasattr(model, 'coef_'):
-            # For linear models
-            importance_scores = np.abs(model.coef_[0])
+        if importance_scores is not None and feature_names is not None:
+            # Ensure we have the right number of features
+            if len(importance_scores) != len(feature_names):
+                st.warning(f"Mismatch between importance scores ({len(importance_scores)}) and feature names ({len(feature_names)})")
+                return create_dummy_feature_importance_chart()
+            
+            # Create a dataframe for plotting
+            importance_df = pd.DataFrame({
+                'feature': feature_names,
+                'importance': importance_scores
+            }).sort_values('importance', ascending=True)
+            
+            # Create bar chart
+            fig = px.bar(
+                importance_df,
+                x='importance',
+                y='feature',
+                orientation='h',
+                title="Feature Importance in Diabetes Risk Assessment",
+                labels={'importance': 'Importance Score', 'feature': 'Features'},
+                color='importance',
+                color_continuous_scale='viridis'
+            )
+            
+            fig.update_layout(
+                height=max(400, len(feature_names) * 25),
+                showlegend=False,
+                title_font_size=16,
+                font=dict(size=12)
+            )
+            
+            return fig
         else:
-            # Fallback: use permutation importance or return dummy data
-            st.warning("Model doesn't have feature_importances_ or coef_ attribute")
+            st.warning("Could not extract feature importance from model. Using sample data.")
             return create_dummy_feature_importance_chart()
-        
-        # Create a dataframe for plotting
-        importance_df = pd.DataFrame({
-            'feature': feature_names,
-            'importance': importance_scores
-        }).sort_values('importance', ascending=True)
-        
-        # Create bar chart
-        fig = px.bar(
-            importance_df,
-            x='importance',
-            y='feature',
-            orientation='h',
-            title="Feature Importance in Diabetes Risk Assessment",
-            labels={'importance': 'Importance Score', 'feature': 'Features'},
-            color='importance',
-            color_continuous_scale='viridis'
-        )
-        
-        fig.update_layout(
-            height=max(400, len(feature_names) * 25),
-            showlegend=False,
-            title_font_size=16,
-            font=dict(size=12)
-        )
-        
-        return fig
         
     except Exception as e:
         st.error(f"Error creating feature importance chart: {str(e)}")
@@ -350,12 +402,22 @@ System Information:
 """
     return report
 
-def load_sample_case_data(session_state_dict):
-    """Load sample case data into session state"""
-    for key, value in session_state_dict.items():
+def load_sample_case_data(case_data):
+    """Load sample case data into session state with proper type conversion"""
+    for key, value in case_data.items():
         st.session_state[key] = value
 
 def main():
+    # Initialize session state for report generation
+    if 'show_report' not in st.session_state:
+        st.session_state.show_report = False
+    if 'current_report' not in st.session_state:
+        st.session_state.current_report = ""
+    if 'current_patient_data' not in st.session_state:
+        st.session_state.current_patient_data = {}
+    if 'current_results' not in st.session_state:
+        st.session_state.current_results = {}
+    
     # Load model
     preprocessor, model, threshold, load_info = load_model()
     
@@ -381,46 +443,46 @@ def main():
     st.sidebar.header("📝 Patient Information")
     st.sidebar.markdown("Enter patient details below:")
     
-    # Patient input form with session state support
+    # Patient input form with session state support and type conversion
     with st.sidebar:
         pregnancies = st.number_input("👶 Number of pregnancies", 
                                     min_value=0, max_value=20, 
-                                    value=st.session_state.get('pregnancies', 0), 
+                                    value=int(st.session_state.get('pregnancies', 0)), 
                                     help="Enter 0 if male or never pregnant")
         
         glucose = st.number_input("🩸 Plasma glucose concentration (mg/dL)", 
                                 min_value=0.0, max_value=300.0, 
-                                value=st.session_state.get('glucose', 120.0), 
+                                value=float(st.session_state.get('glucose', 120.0)), 
                                 step=1.0)
         
         blood_pressure = st.number_input("💓 Diastolic blood pressure (mm Hg)", 
                                        min_value=0.0, max_value=150.0, 
-                                       value=st.session_state.get('blood_pressure', 70.0), 
+                                       value=float(st.session_state.get('blood_pressure', 70.0)), 
                                        step=1.0)
         
         skin_thickness = st.number_input("📏 Triceps skin fold thickness (mm)", 
                                        min_value=0.0, max_value=100.0, 
-                                       value=st.session_state.get('skin_thickness', 20.0), 
+                                       value=float(st.session_state.get('skin_thickness', 20.0)), 
                                        step=1.0)
         
         insulin = st.number_input("💉 2-Hour serum insulin (mu U/ml)", 
                                 min_value=0.0, max_value=900.0, 
-                                value=st.session_state.get('insulin', 80.0), 
+                                value=float(st.session_state.get('insulin', 80.0)), 
                                 step=1.0)
         
         bmi = st.number_input("⚖️ Body mass index", 
                             min_value=0.0, max_value=70.0, 
-                            value=st.session_state.get('bmi', 25.0), 
+                            value=float(st.session_state.get('bmi', 25.0)), 
                             step=0.1)
         
         diabetes_pedigree = st.number_input("🧬 Diabetes pedigree function", 
                                           min_value=0.0, max_value=3.0, 
-                                          value=st.session_state.get('diabetes_pedigree', 0.5), 
+                                          value=float(st.session_state.get('diabetes_pedigree', 0.5)), 
                                           step=0.001, format="%.3f")
         
         age = st.number_input("👤 Age (years)", 
                             min_value=1, max_value=120, 
-                            value=st.session_state.get('age', 30))
+                            value=int(st.session_state.get('age', 30)))
         
         predict_button = st.button("🔍 Assess Risk", type="primary")
     
@@ -451,6 +513,10 @@ def main():
                     st.error(f"❌ Error in prediction: {results['error']}")
                     st.write("Patient data:", patient_data)
                 else:
+                    # Store data for report generation
+                    st.session_state.current_patient_data = patient_data
+                    st.session_state.current_results = results
+                    
                     st.success("✅ Risk assessment completed successfully!")
                     
                     # Display results
@@ -501,7 +567,7 @@ def main():
                         gauge_fig = create_risk_gauge(results['risk_probability'])
                         st.plotly_chart(gauge_fig, use_container_width=True)
 
-                    # Feature importance chart - FIXED
+                    # Feature importance chart
                     st.subheader("📈 Feature Importance Analysis")
                     importance_fig = create_feature_importance_chart(preprocessor, model, patient_data)
                     st.plotly_chart(importance_fig, use_container_width=True)
@@ -527,20 +593,30 @@ def main():
                         st.metric("Skin Thickness", f"{skin_thickness} mm")
                         st.metric("Diabetes Pedigree", f"{diabetes_pedigree:.3f}")
                     
-                    # Generate and download report - FIXED
+                    # Generate and download report section
                     st.subheader("📄 Generate Report")
                     
-                    if st.button("📋 Generate Detailed Report"):
-                        report = generate_comprehensive_report(patient_data, results, preprocessor)
-                        st.text_area("Medical Report", report, height=400)
-                        
-                        # Download button
-                        st.download_button(
-                            label="📥 Download Report",
-                            data=report,
-                            file_name=f"diabetes_risk_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                            mime="text/plain"
-                        )
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        if st.button("📋 Generate Detailed Report"):
+                            st.session_state.show_report = True
+                            st.session_state.current_report = generate_comprehensive_report(
+                                patient_data, results, preprocessor
+                            )
+                    
+                    with col2:
+                        if st.session_state.show_report and st.session_state.current_report:
+                            st.download_button(
+                                label="📥 Download Report",
+                                data=st.session_state.current_report,
+                                file_name=f"diabetes_risk_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                                mime="text/plain"
+                            )
+                    
+                    # Show report if generated
+                    if st.session_state.show_report and st.session_state.current_report:
+                        st.text_area("Medical Report", st.session_state.current_report, height=400)
     
             except Exception as e:
                 st.error(f"❌ Unexpected error during prediction: {str(e)}")
@@ -573,7 +649,7 @@ def main():
         This tool is for **educational and informational purposes only**. It should not replace professional medical diagnosis or treatment. Always consult with healthcare providers for proper medical evaluation.
         """)
         
-        # Sample cases - FIXED
+        # Sample cases with proper type conversion
         st.subheader("🧪 Sample Test Cases")
         
         col1, col2, col3 = st.columns(3)
@@ -581,24 +657,24 @@ def main():
         with col1:
             if st.button("👤 Low Risk Patient"):
                 load_sample_case_data({
-                    'pregnancies': 1, 'glucose': 85, 'blood_pressure': 66, 'skin_thickness': 29,
-                    'insulin': 0, 'bmi': 26.6, 'diabetes_pedigree': 0.351, 'age': 31
+                    'pregnancies': 1, 'glucose': 85.0, 'blood_pressure': 66.0, 'skin_thickness': 29.0,
+                    'insulin': 0.0, 'bmi': 26.6, 'diabetes_pedigree': 0.351, 'age': 31
                 })
                 st.rerun()
         
         with col2:
             if st.button("👤 Moderate Risk Patient"):
                 load_sample_case_data({
-                    'pregnancies': 6, 'glucose': 148, 'blood_pressure': 72, 'skin_thickness': 35,
-                    'insulin': 0, 'bmi': 33.6, 'diabetes_pedigree': 0.627, 'age': 50
+                    'pregnancies': 6, 'glucose': 148.0, 'blood_pressure': 72.0, 'skin_thickness': 35.0,
+                    'insulin': 0.0, 'bmi': 33.6, 'diabetes_pedigree': 0.627, 'age': 50
                 })
                 st.rerun()
         
         with col3:
             if st.button("👤 High Risk Patient"):
                 load_sample_case_data({
-                    'pregnancies': 8, 'glucose': 183, 'blood_pressure': 64, 'skin_thickness': 0,
-                    'insulin': 0, 'bmi': 23.3, 'diabetes_pedigree': 0.672, 'age': 32
+                    'pregnancies': 8, 'glucose': 183.0, 'blood_pressure': 64.0, 'skin_thickness': 0.0,
+                    'insulin': 0.0, 'bmi': 23.3, 'diabetes_pedigree': 0.672, 'age': 32
                 })
                 st.rerun()
 
