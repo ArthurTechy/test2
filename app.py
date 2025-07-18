@@ -472,8 +472,6 @@ System Information:
 - Preprocessor: {type(preprocessor).__name__ if preprocessor else 'Unknown'}
 - Report Generated: {current_time}
 """
-        
-        st.success("✅ Report generated successfully!")
         return report
         
     except Exception as e:
