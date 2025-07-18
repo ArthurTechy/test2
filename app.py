@@ -581,8 +581,10 @@ def main():
     st.markdown('<div class="main-header">🏥 Diabetes Risk Assessment System</div>', unsafe_allow_html=True)
 
     # Home button - show when NOT on home page
+    st.markdown("---")
     with st.sidebar:
-        if 'current_results' in st.session_state:
+        # Show home button when we have prediction results (not on home page)
+        if st.session_state.get('prediction_made', False) or 'current_results' in st.session_state:
             if st.button("🏠 Return to Home", key="home_button", use_container_width=True):
                 st.session_state.prediction_made = False
                 # Clear all prediction-related session state
@@ -590,7 +592,6 @@ def main():
                     if key in st.session_state:
                         del st.session_state[key]
                 st.rerun()
-            st.markdown("---")
     
     # Sidebar for input
     st.sidebar.header("📝 Patient Information")
