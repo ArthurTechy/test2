@@ -530,7 +530,7 @@ def initialize_session_state():
         'current_report': "",
         'current_patient_data': {},
         'current_results': {},
-        'prediction_made': False,  # Add flag to track if prediction was made
+        # Remove prediction_made from defaults - let it be set only by prediction logic
         'Pregnancies': 0,
         'Glucose': 120.0,
         'BloodPressure': 70.0,
@@ -544,6 +544,10 @@ def initialize_session_state():
     for key, default_value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = default_value
+    
+    # Only set prediction_made to False if it doesn't exist at all
+    if 'prediction_made' not in st.session_state:
+        st.session_state.prediction_made = False
 
 def load_sample_case_data(case_data):
     """Load sample case data into session state"""
