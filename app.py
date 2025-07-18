@@ -125,6 +125,9 @@ def load_model():
             'error': f"Error loading model files: {str(e)}"
         }
 
+# Local Timezone
+local_tz = pytz.timezone('Africa/Lagos')  # Lagos timezone
+        
 def predict_diabetes_risk(patient_data, preprocessor, model, threshold):
     """Predict diabetes risk for a patient"""
     try:
@@ -325,7 +328,7 @@ def create_feature_importance_chart(preprocessor, model, patient_data):
                 x='importance',
                 y='feature',
                 orientation='h',
-                title=f"Feature Importance in Diabetes Risk Assessment (Updated: {datetime.datetime.now().strftime('%H:%M:%S')})",
+                title=f"Feature Importance in Diabetes Risk Assessment (Updated: {datetime.datetime.now(local_tz).strftime('%H:%M:%S')})",
                 labels={'importance': 'Importance Score', 'feature': 'Features'},
                 color='importance',
                 color_continuous_scale='viridis'
@@ -387,7 +390,6 @@ def generate_comprehensive_report(patient_data, results, preprocessor):
     """Generate a comprehensive medical report - UPDATED VERSION"""
     try:
         # Use local timezone
-        local_tz = pytz.timezone('Africa/Lagos')  # Lagos timezone
         current_time = datetime.datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S %Z')
         
         # Debug: Check what we have
