@@ -12,15 +12,6 @@ import io
 from sklearn.ensemble import VotingClassifier
 import os
 import traceback
-
-# Clear stale session state on app startup
-if 'app_initialized' not in st.session_state:
-    # Clear all prediction-related session state on first load
-    for key in ['current_patient_data', 'current_results', 'show_report', 'prediction_made']:
-        if key in st.session_state:
-            del st.session_state[key]
-    st.session_state.app_initialized = True
-    st.session_state.prediction_made = False
     
 # Page configuration
 st.set_page_config(
@@ -597,15 +588,14 @@ def main():
         st.write("show_report:", st.session_state.get('show_report', 'Not set'))
         st.markdown("---")
         
-        # Home button logic
-        if 'current_results' in st.session_state:
-            if st.button("🏠 Return to Home", key="home_button", use_container_width=True):
-                st.session_state.prediction_made = False
-                for key in ['current_patient_data', 'current_results', 'show_report']:
-                    if key in st.session_state:
-                        del st.session_state[key]
-                st.rerun()
-            st.markdown("---")
+    # In your sidebar, add this after the debug section
+    if st.sidebar.button("🗑️ Clear All Data", key="clear_all"):
+        # Clear all session state
+        for key in list(st.session_state.keys()):
+            if key != 'app_initialized':  # Keep this one
+                del st.session_state[key]
+        st.session_state.prediction_made = False
+        st.rerun()
     
     # Sidebar for input
     st.sidebar.header("📝 Patient Information")
