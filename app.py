@@ -580,27 +580,21 @@ def main():
     # Header
     st.markdown('<div class="main-header">🏥 Diabetes Risk Assessment System</div>', unsafe_allow_html=True)
 
-    # Home button - always show it, let it clear everything
+    # Home button - show when we have actual prediction results
     with st.sidebar:
-        if st.button("🏠 Return to Home", key="home_button", use_container_width=True):
-            # Force clear ALL session state
-            keys_to_clear = ['current_patient_data', 'current_results', 'show_report', 'prediction_made']
-            for key in keys_to_clear:
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.session_state.prediction_made = False
-            st.rerun()
-        st.markdown("---")
-
-    # Debug - let's see what's in current_results
-    with st.sidebar:
-        st.write("DEBUG:")
-        st.write("prediction_made:", st.session_state.get('prediction_made', 'Not set'))
-        st.write("current_results exists:", 'current_results' in st.session_state)
-        if 'current_results' in st.session_state:
-            st.write("current_results content:", st.session_state.current_results)
-        st.write("show_report:", st.session_state.get('show_report', 'Not set'))
-        st.markdown("---")
+        # Check if current_results exists AND has content
+        has_results = (st.session_state.get('current_results', {}) and 
+                       st.session_state.get('prediction_made', False))
+        
+        if has_results:
+            if st.button("🏠 Return to Home", key="home_button", use_container_width=True):
+                st.session_state.prediction_made = False
+                # Clear all prediction-related session state
+                for key in ['current_patient_data', 'current_results', 'show_report']:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                st.rerun()
+            st.markdown("---")
     
     # Sidebar for input
     st.sidebar.header("📝 Patient Information")
