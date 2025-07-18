@@ -579,6 +579,14 @@ def main():
     
     # Header
     st.markdown('<div class="main-header">🏥 Diabetes Risk Assessment System</div>', unsafe_allow_html=True)
+
+    # Home button when not on home page
+    with st.sidebar:
+        if st.session_state.prediction_made: 
+            if st.button("🏠 Return to Home", key="home_button", use_container_width=True):
+                st.session_state.prediction_made = False
+                st.rerun()
+            st.markdown("---")
     
     # Sidebar for input
     st.sidebar.header("📝 Patient Information")
