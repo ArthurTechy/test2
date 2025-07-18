@@ -580,13 +580,9 @@ def main():
     # Header
     st.markdown('<div class="main-header">🏥 Diabetes Risk Assessment System</div>', unsafe_allow_html=True)
 
-    # Home button - show when we have actual prediction results
+    # Home button - show only when prediction_made is True
     with st.sidebar:
-        # Check if current_results exists AND has content
-        has_results = (st.session_state.get('current_results', {}) and 
-                       st.session_state.get('prediction_made', False))
-        
-        if has_results:
+        if st.session_state.get('prediction_made', False):
             if st.button("🏠 Return to Home", key="home_button", use_container_width=True):
                 st.session_state.prediction_made = False
                 # Clear all prediction-related session state
