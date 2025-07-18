@@ -214,29 +214,34 @@ def extract_importance_from_estimator(estimator, name):
     try:
         # Method 1: Direct feature_importances_
         if hasattr(estimator, 'feature_importances_'):
+            print(f"✓ {name}: Used Method 1 - feature_importances_")
             return estimator.feature_importances_
         
         # Method 2: Coefficients (for linear models)
         if hasattr(estimator, 'coef_'):
             coef = estimator.coef_
+            print(f"✓ {name}: Used Method 2 - coef_ (coefficients)")
             return np.abs(coef[0] if coef.ndim > 1 else coef)
         
         # Method 3: Pipeline with named_steps
         if hasattr(estimator, 'named_steps'):
             for step_name in ['classifier', 'regressor', 'model']:
                 if hasattr(estimator.named_steps, step_name):
+                    print(f"✓ {name}: Used Method 3 - named_steps.{step_name}")
                     final_est = getattr(estimator.named_steps, step_name)
                     return extract_importance_from_estimator(final_est, f"{name}_{step_name}")
         
         # Method 4: Pipeline with steps
         if hasattr(estimator, 'steps'):
+            print(f"✓ {name}: Used Method 4 - pipeline steps")
             final_est = estimator.steps[-1][1]
             return extract_importance_from_estimator(final_est, f"{name}_final")
         
+        print(f"✗ {name}: No compatible method found")
         return None
         
     except Exception as e:
-        st.warning(f"Error extracting importance from {name}: {str(e)}")
+        print(f"✗ {name}: Error in extraction - {str(e)}")
         return None
 
 def get_feature_importance(model, preprocessor, patient_data=None):
