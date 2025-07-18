@@ -21,13 +21,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
+# Custom CSS with dark mode support
 st.markdown("""
 <style>
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
-        color: #2E86AB;
+        color: #4A9EFF;
         text-align: center;
         margin-bottom: 2rem;
     }
@@ -36,24 +36,45 @@ st.markdown("""
         border-radius: 10px;
         margin: 1rem 0;
         border-left: 5px solid;
+        color: inherit;
     }
     .risk-very-low, .risk-low {
-        background-color: #d4edda;
+        background-color: rgba(40, 167, 69, 0.15);
         border-left-color: #28a745;
     }
     .risk-moderate {
-        background-color: #fff3cd;
+        background-color: rgba(255, 193, 7, 0.15);
         border-left-color: #ffc107;
     }
     .risk-high, .risk-very-high {
-        background-color: #f8d7da;
+        background-color: rgba(220, 53, 69, 0.15);
         border-left-color: #dc3545;
     }
     .metric-card {
-        background-color: #f8f9fa;
+        background-color: rgba(128, 128, 128, 0.1);
         padding: 1rem;
         border-radius: 8px;
         margin: 0.5rem 0;
+        color: inherit;
+    }
+    
+    /* Dark mode specific overrides */
+    @media (prefers-color-scheme: dark) {
+        .main-header {
+            color: #64B5F6;
+        }
+        .risk-very-low, .risk-low {
+            background-color: rgba(76, 175, 80, 0.2);
+        }
+        .risk-moderate {
+            background-color: rgba(255, 193, 7, 0.2);
+        }
+        .risk-high, .risk-very-high {
+            background-color: rgba(244, 67, 54, 0.2);
+        }
+        .metric-card {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
     }
 </style>
 """, unsafe_allow_html=True)
