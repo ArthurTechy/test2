@@ -748,7 +748,7 @@ def main():
         
         # Show report if generated
         if st.session_state.show_report and st.session_state.current_report:
-            st.subheader("📄 Generated Report")
+            st.subheader("📄 Detailed Report")
             st.text_area("Medical Report", st.session_state.current_report, height=400, key="report_display")
 
     # Welcome message when no prediction has been made
