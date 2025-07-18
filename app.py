@@ -585,8 +585,11 @@ def main():
         if st.session_state.prediction_made: 
             if st.button("🏠 Return to Home", key="home_button", use_container_width=True):
                 st.session_state.prediction_made = False
+                # Clear other session state variables
+                for key in ['current_patient_data', 'current_results', 'show_report']:
+                    if key in st.session_state:
+                        del st.session_state[key]
                 st.rerun()
-            st.markdown("---")
     
     # Sidebar for input
     st.sidebar.header("📝 Patient Information")
