@@ -580,22 +580,27 @@ def main():
     # Header
     st.markdown('<div class="main-header">🏥 Diabetes Risk Assessment System</div>', unsafe_allow_html=True)
 
-    # Debug - add this temporarily to see session state
+    # Home button - always show it, let it clear everything
+    with st.sidebar:
+        if st.button("🏠 Return to Home", key="home_button", use_container_width=True):
+            # Force clear ALL session state
+            keys_to_clear = ['current_patient_data', 'current_results', 'show_report', 'prediction_made']
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.session_state.prediction_made = False
+            st.rerun()
+        st.markdown("---")
+
+    # Debug - let's see what's in current_results
     with st.sidebar:
         st.write("DEBUG:")
         st.write("prediction_made:", st.session_state.get('prediction_made', 'Not set'))
         st.write("current_results exists:", 'current_results' in st.session_state)
+        if 'current_results' in st.session_state:
+            st.write("current_results content:", st.session_state.current_results)
         st.write("show_report:", st.session_state.get('show_report', 'Not set'))
         st.markdown("---")
-        
-    # In your sidebar, add this after the debug section
-    if st.sidebar.button("🗑️ Clear All Data", key="clear_all"):
-        # Clear all session state
-        for key in list(st.session_state.keys()):
-            if key != 'app_initialized':  # Keep this one
-                del st.session_state[key]
-        st.session_state.prediction_made = False
-        st.rerun()
     
     # Sidebar for input
     st.sidebar.header("📝 Patient Information")
