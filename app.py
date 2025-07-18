@@ -530,7 +530,6 @@ def initialize_session_state():
         'current_report': "",
         'current_patient_data': {},
         'current_results': {},
-        # Remove prediction_made from defaults - let it be set only by prediction logic
         'Pregnancies': 0,
         'Glucose': 120.0,
         'BloodPressure': 70.0,
