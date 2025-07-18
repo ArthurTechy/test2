@@ -9,3 +9,4 @@ catboost==1.2.8
 matplotlib==3.10.3
 seaborn==0.13.2
 plotly==6.2.0
+pytz==2024.1
