@@ -554,9 +554,6 @@ def main():
     # Initialize session state
     initialize_session_state()
 
-    # Timezone
-    local_tz = pytz.timezone('Africa/Lagos')
-
     # Load model
     preprocessor, model, threshold, load_info = load_model()
     
