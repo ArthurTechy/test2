@@ -580,18 +580,23 @@ def main():
     # Header
     st.markdown('<div class="main-header">🏥 Diabetes Risk Assessment System</div>', unsafe_allow_html=True)
 
-    # Home button - show when NOT on home page
-    st.markdown("---")
+    # Debug - add this temporarily to see session state
     with st.sidebar:
-        # Show home button when we have prediction results (not on home page)
-        if st.session_state.get('prediction_made', False) or 'current_results' in st.session_state:
+        st.write("DEBUG:")
+        st.write("prediction_made:", st.session_state.get('prediction_made', 'Not set'))
+        st.write("current_results exists:", 'current_results' in st.session_state)
+        st.write("show_report:", st.session_state.get('show_report', 'Not set'))
+        st.markdown("---")
+        
+        # Home button logic
+        if 'current_results' in st.session_state:
             if st.button("🏠 Return to Home", key="home_button", use_container_width=True):
                 st.session_state.prediction_made = False
-                # Clear all prediction-related session state
                 for key in ['current_patient_data', 'current_results', 'show_report']:
                     if key in st.session_state:
                         del st.session_state[key]
                 st.rerun()
+            st.markdown("---")
     
     # Sidebar for input
     st.sidebar.header("📝 Patient Information")
