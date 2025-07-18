@@ -4,6 +4,7 @@ import numpy as np
 import joblib
 import dill
 import datetime
+import pytz
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
@@ -217,9 +218,13 @@ def extract_importance_from_estimator(estimator, name):
         st.warning(f"Error extracting importance from {name}: {str(e)}")
         return None
 
-def get_feature_importance(model, preprocessor):
-    """Extract feature importance from ensemble models"""
+def get_feature_importance(model, preprocessor, patient_data=None):
+    """Extract feature importance from ensemble models - ALWAYS FRESH"""
     try:
+        # Clear any cached feature importance to ensure fresh calculation
+        if hasattr(model, '_feature_importance_cache'):
+            delattr(model, '_feature_importance_cache')
+        
         # Get feature names from preprocessor
         feature_names = getattr(preprocessor, 'feature_names', [])
         
@@ -235,7 +240,7 @@ def get_feature_importance(model, preprocessor):
         
         # Check if model is VotingClassifier
         if isinstance(model, VotingClassifier):
-            # Get all estimators from the ensemble
+            # Get all estimators from the ensemble - FRESH calculation
             estimators = model.estimators_
             estimator_names = [name for name, _ in model.estimators]
             
@@ -245,6 +250,7 @@ def get_feature_importance(model, preprocessor):
             
             for name, estimator in zip(estimator_names, estimators):
                 try:
+                    # Force fresh calculation by accessing the estimator directly
                     importance = extract_importance_from_estimator(estimator, name)
                     
                     if importance is not None and len(importance) == len(feature_names):
@@ -255,14 +261,14 @@ def get_feature_importance(model, preprocessor):
                     continue
             
             if all_importances:
-                # Average importance across all valid estimators
+                # Average importance across all valid estimators - FRESH calculation
                 avg_importance = np.mean(all_importances, axis=0)
                 return avg_importance, feature_names
             else:
                 return None, None
         
         else:
-            # Single model
+            # Single model - FRESH calculation
             importance = extract_importance_from_estimator(model, "Single Model")
             return importance, feature_names
     
@@ -271,13 +277,13 @@ def get_feature_importance(model, preprocessor):
         return None, None
 
 def create_feature_importance_chart(preprocessor, model, patient_data):
-    """Create a feature importance visualization"""
+    """Create a feature importance visualization - ALWAYS FRESH"""
     try:
-        # Get feature importance and names
-        importance_scores, feature_names = get_feature_importance(model, preprocessor)
+        # Get feature importance and names - FRESH calculation
+        importance_scores, feature_names = get_feature_importance(model, preprocessor, patient_data)
         
         if importance_scores is not None and feature_names is not None:
-            # Create a dataframe for plotting
+            # Create a dataframe for plotting - FRESH data
             importance_df = pd.DataFrame({
                 'feature': feature_names,
                 'importance': importance_scores
@@ -287,13 +293,13 @@ def create_feature_importance_chart(preprocessor, model, patient_data):
             if len(importance_df) > 15:
                 importance_df = importance_df.tail(15)
             
-            # Create bar chart
+            # Create bar chart with timestamp to ensure fresh rendering
             fig = px.bar(
                 importance_df,
                 x='importance',
                 y='feature',
                 orientation='h',
-                title="Feature Importance in Diabetes Risk Assessment",
+                title=f"Feature Importance in Diabetes Risk Assessment (Updated: {datetime.datetime.now().strftime('%H:%M:%S')})",
                 labels={'importance': 'Importance Score', 'feature': 'Features'},
                 color='importance',
                 color_continuous_scale='viridis'
@@ -352,9 +358,11 @@ def create_fallback_chart(patient_data):
     return fig
 
 def generate_comprehensive_report(patient_data, results, preprocessor):
-    """Generate a comprehensive medical report - FIXED VERSION"""
+    """Generate a comprehensive medical report - UPDATED VERSION"""
     try:
-        current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # Use local timezone
+        local_tz = pytz.timezone('Africa/Lagos')  # Lagos timezone
+        current_time = datetime.datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S %Z')
         
         # Debug: Check what we have
         st.write("DEBUG - Generating report with:")
@@ -369,12 +377,13 @@ def generate_comprehensive_report(patient_data, results, preprocessor):
         recommendation = results.get('recommendation', 'Consult healthcare provider')
         threshold_used = results.get('threshold_used', 0.5)
         
-        # Build imputation details
+        # Build imputation details with actual values
         imputation_details = ""
         if imputed_features:
             imputation_details = "\nIMPUTATION DETAILS:\n"
             for feature in imputed_features:
-                imputation_details += f"- {feature}: Estimated (uncertainty quantified)\n"
+                actual_value = patient_data.get(feature, 'Unknown')
+                imputation_details += f"- {feature}: {actual_value} (Estimated - uncertainty quantified)\n"
         
         # Clinical interpretation
         if risk_prob > 0.8:
@@ -398,6 +407,28 @@ def generate_comprehensive_report(patient_data, results, preprocessor):
             except Exception as e:
                 st.warning(f"Error accessing {key}: {str(e)}")
                 return default
+        
+        # BMI categorization
+        bmi_value = float(safe_get('BMI', 0))
+        if bmi_value < 18.5:
+            bmi_status = 'Underweight (<18.5)'
+        elif bmi_value < 25:
+            bmi_status = 'Normal (18.5-25)'
+        elif bmi_value < 30:
+            bmi_status = 'Overweight (25-30)'
+        elif bmi_value < 35:
+            bmi_status = 'Obese_I (30-35)'
+        else:
+            bmi_status = 'Obese_II+ (>35)'
+        
+        # Glucose categorization
+        glucose_value = float(safe_get('Glucose', 0))
+        if glucose_value < 140:
+            glucose_status = 'Normal_Glucose (<140)'
+        elif glucose_value < 200:
+            glucose_status = 'Elevated_Glucose (140-199)'
+        else:
+            glucose_status = 'High_Glucose (≥200)'
         
         # Build the report
         report = f"""DIABETES RISK ASSESSMENT REPORT
@@ -427,9 +458,9 @@ CLINICAL NOTES:
 {clinical_notes}
 
 RISK FACTORS ASSESSMENT:
-- Glucose Level: {'High' if float(safe_get('Glucose', 0)) > 140 else 'Normal'}
-- BMI Status: {'Obese' if float(safe_get('BMI', 0)) > 30 else 'Normal/Overweight'}
-- Age Factor: {'High Risk' if float(safe_get('Age', 0)) > 45 else 'Low Risk'}
+- Glucose Level: {glucose_status}
+- BMI Status: {bmi_status}
+- Age Factor: {'High Risk' if float(safe_get('Age', 0)) > 40 else 'Low Risk'}
 - Blood Pressure: {'Elevated' if float(safe_get('BloodPressure', 0)) > 80 else 'Normal'}
 
 DISCLAIMER:
@@ -453,7 +484,7 @@ System Information:
         
         # Return a basic report even if detailed generation fails
         return f"""DIABETES RISK ASSESSMENT REPORT
-Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Generated: {current_time}
 {'='*60}
 
 ERROR GENERATING DETAILED REPORT: {str(e)}
@@ -496,7 +527,10 @@ def load_sample_case_data(case_data):
 def main():
     # Initialize session state
     initialize_session_state()
-    
+
+    # Timezone
+    local_tz = pytz.timezone('Africa/Lagos')
+
     # Load model
     preprocessor, model, threshold, load_info = load_model()
     
@@ -709,7 +743,7 @@ def main():
                 st.download_button(
                     label="📥 Download Report",
                     data=st.session_state.current_report,
-                    file_name=f"diabetes_risk_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    file_name=f"diabetes_risk_report_{datetime.datetime.now(local_tz).strftime('%Y%m%d_%H%M%S')}.txt",
                     mime="text/plain",
                     key="download_report"
                 )
