@@ -13,6 +13,15 @@ from sklearn.ensemble import VotingClassifier
 import os
 import traceback
 
+# Clear stale session state on app startup
+if 'app_initialized' not in st.session_state:
+    # Clear all prediction-related session state on first load
+    for key in ['current_patient_data', 'current_results', 'show_report', 'prediction_made']:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.session_state.app_initialized = True
+    st.session_state.prediction_made = False
+    
 # Page configuration
 st.set_page_config(
     page_title="Diabetes Risk Assessment",
